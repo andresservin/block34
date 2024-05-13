@@ -1,44 +1,5 @@
-const express = require('express');
-const postsRouter = express.Router();
-
-const { requireUser } = require('./utils');
-
-const { 
-  createPost,
-  getAllPosts,
-  updatePost,
-  getPostById,
-} = require('../db');
-
-postsRouter.get('/', async (req, res, next) => {
-  try {
-    const allPosts = await getAllPosts();
-
-    const posts = allPosts.filter(post => {
-      // the post is active, doesn't matter who it belongs to
-      if (post.active) {
-        return true;
-      }
-    
-      // the post is not active, but it belogs to the current user
-      if (req.user && post.author.id === req.user.id) {
-        return true;
-      }
-    
-      // none of the above are true
-      return false;
-    });
-  
-    res.send({
-      posts
-    });
-  } catch ({ name, message }) {
-    next({ name, message });
-  }
-});
-
 postsRouter.post('/', requireUser, async (req, res, next) => {
-  const { title, content = "" } = req.body;
+  const { title, content = "", tags } = req.body;
 
   const postData = {};
 
@@ -46,6 +7,7 @@ postsRouter.post('/', requireUser, async (req, res, next) => {
     postData.authorId = req.user.id;
     postData.title = title;
     postData.content = content;
+    postData.tags = tags;
 
     const post = await createPost(postData);
 
@@ -57,8 +19,8 @@ postsRouter.post('/', requireUser, async (req, res, next) => {
         message: 'There was an error creating your post. Please try again.'
       })
     }
-  } catch ({ name, message }) {
-    next({ name, message });
+  } catch (error) {
+    next(error);
   }
 });
 
@@ -69,7 +31,7 @@ postsRouter.patch('/:postId', requireUser, async (req, res, next) => {
   const updateFields = {};
 
   if (tags && tags.length > 0) {
-    updateFields.tags = tags.trim().split(/\s+/);
+    updateFields.tags = tags;
   }
 
   if (title) {
@@ -92,13 +54,27 @@ postsRouter.patch('/:postId', requireUser, async (req, res, next) => {
         message: 'You cannot update a post that is not yours'
       })
     }
-  } catch ({ name, message }) {
-    next({ name, message });
+  } catch (error) {
+    next(error);
   }
 });
-
 postsRouter.delete('/:postId', requireUser, async (req, res, next) => {
-  res.send({ message: 'under construction' });
-});
+  const { postId } = req.params;
 
-module.exports = postsRouter;
+  try {
+    const postToDelete = await getPostById(postId);
+
+    if (!postToDelete) {
+      return res.status(404).json({ message: "Post not found." });
+    }
+
+    if (postToDelete.author.id !== req.user.id) {
+      return res.status(403).json({ message: "You are not authorized to delete this post." });
+    }
+
+    await deletePost(postId);
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
